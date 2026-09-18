@@ -18,3 +18,7 @@ services:
           property: connectionString
       - key: ADMIN_TOKEN
         value: 38L-YRkLfziplGFf
+      - key: RESEND_API_KEY
+        sync: false
+      - key: NOTIFY_EMAIL
+        sync: false

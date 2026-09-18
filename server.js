@@ -65,6 +65,49 @@ function clampString(v, max) {
   return v.slice(0, max);
 }
 
+// --- e-mail notification (Resend HTTP API — SMTP is blocked on Render's free plan) ---
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL || "";
+const MAIL_FROM = process.env.MAIL_FROM || "FIMANI Quiz <onboarding@resend.dev>";
+
+if (!RESEND_API_KEY || !NOTIFY_EMAIL) {
+  console.warn("RESEND_API_KEY / NOTIFY_EMAIL not set — result e-mails are disabled.");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function sendResultEmail({ firstname, resultName, resultTagline, resultDesc, answers, confirmedAt }) {
+  if (!RESEND_API_KEY || !NOTIFY_EMAIL) return;
+
+  const who = firstname || "Une participante";
+  const answerRows = Object.keys(answers)
+    .map((k) => `<tr><td style="padding:2px 12px 2px 0;color:#666">${escapeHtml(k)}</td><td>${escapeHtml(answers[k])}</td></tr>`)
+    .join("");
+  const html =
+    `<h2>${escapeHtml(who)} a confirmé sa participation</h2>` +
+    `<p><b>Profil :</b> ${escapeHtml(resultName)}<br><b>${escapeHtml(resultTagline)}</b></p>` +
+    (resultDesc ? `<p>${escapeHtml(resultDesc)}</p>` : "") +
+    `<h3>Ses réponses</h3><table>${answerRows}</table>` +
+    `<p style="color:#666">Confirmé le ${escapeHtml(confirmedAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris" }))}</p>`;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + RESEND_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: MAIL_FROM,
+      to: [NOTIFY_EMAIL],
+      subject: `Résultat FIMANI — ${who} : ${resultName}`,
+      html,
+    }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    throw new Error("Resend responded " + res.status + ": " + (await res.text()));
+  }
+}
+
 app.post("/api/participations", async (req, res) => {
   try {
     const ip = req.ip || "";
@@ -98,6 +141,16 @@ app.post("/api/participations", async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [firstname, resultName, resultTagline, JSON.stringify(safeAnswers), confirmedAt, ip]
     );
+
+    // Fire and forget: a mail failure must never break the participant's confirmation.
+    sendResultEmail({
+      firstname,
+      resultName,
+      resultTagline,
+      resultDesc: clampString(body.resultDesc, 1000),
+      answers: safeAnswers,
+      confirmedAt,
+    }).catch((err) => console.error("Result e-mail failed:", err));
 
     res.json({ ok: true, id: result.rows[0].id });
   } catch (err) {

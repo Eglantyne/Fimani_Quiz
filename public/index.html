@@ -1458,6 +1458,7 @@
 
     state.resultName = arch.name;
     state.resultTagline = arch.tagline;
+    state.resultDesc = arch.desc;
     state.confirmed = false;
     document.getElementById("confirmCta").hidden = false;
     document.getElementById("confirmPanel").hidden = true;
@@ -1653,6 +1654,7 @@
           firstname: state.firstname || "",
           resultName: state.resultName || "",
           resultTagline: state.resultTagline || "",
+          resultDesc: state.resultDesc || "",
           answers: state.answers || {},
           confirmedAt: new Date().toISOString()
         };
